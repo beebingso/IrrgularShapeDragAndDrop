@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script src="clipper.js"></script>
+</head>
+
+<body>
+    <canvas id="canvas" width="400" height="400" style="border:1px solid #ccc;"></canvas>
+    <script>
+        var button = document.querySelector('button');
+        var canvas = document.getElementById("canvas");
+        var ctx = canvas.getContext("2d");
+        var canvasWidth = 1200;
+        var canvasHeight = 610;
+        var bound = [{ X: 0, Y: 0 }, { X: canvasWidth, Y: 0 }, { X: canvasWidth, Y: canvasHeight }, { X: 0, Y: canvasHeight }];
+        let selectPart;
+        let isDragging = false;
+        let startX, startY;
+        const attachDistance = 50;
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        var parts = [
+            {
+                part: [{ X: 0, Y: 0 },
+                { X: 200, Y: 0 },
+                { X: 200, Y: 50 },
+                { X: 0, Y: 50 }], color: getRandomColor()
+            },
+            {
+                part: [{ X: 200, Y: 0 },
+                { X: 400, Y: 0 },
+                { X: 400, Y: 50 },
+                { X: 200, Y: 50 }], color: getRandomColor()
+            },
+            {
+                part: [{ X: 400, Y: 0 },
+                { X: 400, Y: 200 },
+                { X: 600, Y: 0 }], color: getRandomColor()
+            },
+            {
+                part: [{ X: 600, Y: 0 },
+                { X: 600, Y: 200 },
+                { X: 400, Y: 200 }], color: getRandomColor()
+            },
+            {
+                part: [{ X: 600, Y: 0 },
+                { X: 800, Y: 0 },
+                { X: 800, Y: 200 }], color: getRandomColor()
+            },
+            {
+                part: [{ X: 600, Y: 0 },
+                { X: 600, Y: 200 },
+                { X: 800, Y: 200 }], color: getRandomColor()
+            },
+            {
+                part: [{ X: 0, Y: 50 },
+                { X: 100, Y: 50 },
+                { X: 100, Y: 150 },
+                { X: 200, Y: 150 },
+                { X: 200, Y: 250 },
+                { X: 100, Y: 250 },
+                { X: 100, Y: 350 },
+                { X: 0, Y: 350 }], color: getRandomColor()
+            },
+            {
+                part: [{ X: 100, Y: 50 },
+                { X: 300, Y: 50 },
+                { X: 300, Y: 350 },
+                { X: 100, Y: 350 },
+                { X: 100, Y: 250 },
+                { X: 200, Y: 250 },
+                { X: 200, Y: 150 },
+                { X: 100, Y: 150 }], color: getRandomColor()
+            },
+        ]
+        draw();
+
+
+        // 鼠标按下
+        canvas.addEventListener('mousedown', function (e) {
+            startX = e.offsetX;
+            startY = e.offsetY;
+            if (pointInPath(startX, startY, parts)) {
+                isDragging = true;
+            }
+        });
+
+        // 鼠标移动
+        canvas.addEventListener('mousemove', function (e) {
+            const mouseX = e.offsetX;
+            const mouseY = e.offsetY;
+            if (isDragging) {
+                let offsetX = mouseX - startX;
+                let offsetY = mouseY - startY;
+                var newpart = { part: newpathinstance(selectPart.part, offsetX, offsetY), color: selectPart.color };
+                // 重新绘制
+                draw();
+                var newAlpha = 0.2;
+                var newColor = newpart.color.replace(/rgba\((\d+),\s*(\d+),\s*(\d+),\s*[\d.]+\)/, `rgba($1, $2, $3, ${newAlpha})`);
+                drawPath(newpart.part, newColor);
+            }
+        });
+
+        // 鼠标松开
+        canvas.addEventListener('mouseup', function (e) {
+            const mouseX = e.offsetX;
+            const mouseY = e.offsetY;
+            let d = attachDistance;
+            if (isDragging) {
+                let offsetX = mouseX - startX;
+                let offsetY = mouseY - startY;
+                var sols = collisionDetect(bound, parts, selectPart);
+                var bestPoint;
+                var found = false;
+                var points = [];
+                for (var i = 0; i < sols.length; i++) {
+                    var sol = sols[i];
+                    for (let j = 0; j < sol.length; j++) {
+                        const element = sol[j];
+                        element.X = Math.round(element.X);
+                        element.Y = Math.round(element.Y);
+                        points.push(element);
+                    }
+                }
+                let cornerPoints = [];
+                let parallelPoints = [];
+                extendpoints(sols, cornerPoints, parallelPoints, offsetX, offsetY);
+                var points = [...points, ...cornerPoints, ...parallelPoints];
+                for (let index = 0; index < points.length; index++) {
+                    const element = points[index];
+                    var cd = distance(-offsetX, -offsetY, element.X, element.Y);
+                    if (cd < d) {
+                        found = true;
+                        bestPoint = element;
+                        d = cd;
+                        break;
+                    }
+                }
+                if (found) {
+                    for (let i = 0; i < selectPart.part.length; i++) {
+                        selectPart.part[i].X -= bestPoint.X;
+                        selectPart.part[i].Y -= bestPoint.Y;
+                    }
+                } else {
+                    for (let i = 0; i < selectPart.part.length; i++) {
+                        selectPart.part[i].X += offsetX;
+                        selectPart.part[i].Y += offsetY;
+                    }
+                }
+            }
+            isDragging = false;
+            draw();
+        });
+
+        function pointInPath(x, y, parts) {
+            for (let i = 0; i < parts.length; i++) {
+                var partcolor = parts[i];
+                if (ClipperLib.Clipper.PointInPolygon(new ClipperLib.IntPoint(x, y), partcolor.part)) {
+                    selectPart = partcolor;
+                    return true;
+                }
+            }
+        }
+
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            for (let index = 0; index < parts.length; index++) {
+                const partcolor = parts[index];
+                drawPath(partcolor.part, partcolor.color);
+            }
+        }
+
+        function drawPath(path, color) {
+            ctx.fillStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(path[0].X, path[0].Y);
+            for (var i = 1; i < path.length; i++) {
+                ctx.lineTo(path[i].X, path[i].Y);
+            }
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        function collisionDetect(bound, fixedParts, detectPart) {
+            const scale = 100000;
+            var boundary = negativePath(bound);
+            ClipperLib.JS.ScaleUpPath(boundary, scale);
+            var part = newpathinstance(detectPart.part, 0, 0);
+            ClipperLib.JS.ScaleUpPath(part, scale);
+            let co = new ClipperLib.ClipperOffset(2,0.25);
+            co.AddPath(part,ClipperLib.JoinType.jtRound, ClipperLib.EndType.etClosedPolygon);
+            co.Execute(part,-2);
+            part = part[0];
+            var rectSol = ClipperLib.Clipper.MinkowskiSum(boundary, part, true);
+            var area = 0;
+            var innerRect;
+            for (let j = 0; j < rectSol.length; j++) {
+                var sol = rectSol[j];
+                var solArea = ClipperLib.Clipper.Area(sol)
+                if (solArea < area || area == 0) {
+                    innerRect = sol;
+                    area = solArea;
+                }
+            }
+            var clipper = new ClipperLib.Clipper();
+            clipper.AddPath(innerRect, ClipperLib.PolyType.ptSubject, true);
+            for (let i = 0; i < fixedParts.length; i++) {
+                const fixedPartColor = fixedParts[i];
+                if (detectPart == fixedPartColor) {
+                    continue;
+                }
+                var fixedPart = negativePath(fixedPartColor.part);
+                ClipperLib.JS.ScaleUpPath(fixedPart, scale);
+                var comparePath = ClipperLib.Clipper.MinkowskiSum(fixedPart, part, true)
+                var area = 0;
+                var outerRect;
+                for (let j = 0; j < comparePath.length; j++) {
+                    var compareRect = comparePath[j];
+                    var compareRectArea = ClipperLib.Clipper.Area(compareRect)
+                    if (compareRectArea > area || area == 0) {
+                        outerRect = compareRect;
+                        area = compareRectArea;
+                    }
+                }
+                clipper.AddPath(outerRect, ClipperLib.PolyType.ptClip, true);
+            }
+            var solution = new ClipperLib.Paths();
+            clipper.Execute(ClipperLib.ClipType.ctDifference, solution, ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+            ClipperLib.JS.ScaleDownPaths(solution, scale);
+            return solution;
+        }
+
+        function getRandomColor() {
+            var alpha = 1.0;
+            const r = Math.floor(Math.random() * 256); // 0 - 255
+            const g = Math.floor(Math.random() * 256);
+            const b = Math.floor(Math.random() * 256);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        function negativePath(path) {
+            var newPath = [path.length]
+            for (let i = 0; i < path.length; i++) {
+                newPath[i] = { X: -path[i].X, Y: -path[i].Y };
+            }
+            return newPath;
+        }
+
+        function distance(ax, ay, bx, by) {
+            return Math.sqrt(Math.pow(ax - bx, 2) + Math.pow(ay - by, 2));
+        }
+
+        function newpathinstance(path, x, y) {
+            var newpath = [path.length]
+            for (let i = 0; i < path.length; i++) {
+                newpath[i] = { X: path[i].X + x, Y: path[i].Y + y }
+            }
+            return newpath;
+        }
+
+        function extendpoints(solutions, cornerPoints, parallelPoints, offsetX, offsetY) {
+            let solLines = [];
+            let xpoints = {};
+            let ypoints = {};
+            let distinctPoint = {};
+            const refpoint = selectPart.part[0];
+            for (let i = 0; i < solutions.length; i++) {
+                const solution = solutions[i];
+                for (let j = 0; j < solution.length; j++) {
+                    const startPoint = solution[j];
+                    const endPoint = j + 1 >= solution.length ? solution[0] : solution[j + 1];
+                    solLines.push({ start: startPoint, end: endPoint });
+                }
+            }
+            for (let i = 0; i < parts.length; i++) {
+                const part = parts[i];
+                if (part == selectPart) {
+                    continue;
+                }
+                for (let j = 0; j < part.part.length; j++) {
+                    const point = part.part[j];
+                    let x = refpoint.X - point.X;
+                    let y = refpoint.Y - point.Y;
+                    if (Math.abs(x) <= attachDistance) {
+                        xpoints[x] = x;
+                    }
+                    if (Math.abs(y) <= attachDistance) {
+                        ypoints[y] = y;
+                    }
+                }
+            }
+            //求X的分割线
+            for (let x in xpoints) {
+                for (let j = 0; j < solLines.length; j++) {
+                    const line = solLines[j];
+                    if ((line.start.X <= x && x <= line.end.X) || (line.start.X >= x && x >= line.end.X)) {
+                        let point = lineToLine(line.start.X, line.start.Y, line.end.X, line.end.Y, x, 0, x, 100);
+                        let key = point.X + ":" + point.Y;
+                        if (!distinctPoint[key]) {
+                            cornerPoints.push(point);
+                            distinctPoint[key] = point;
+                        }
+                    }
+                }
+            }
+            //求Y的分割线
+            for (let y in ypoints) {
+                for (let j = 0; j < solLines.length; j++) {
+                    const line = solLines[j];
+                    if ((line.start.Y <= y && y <= line.end.Y) || (line.start.Y >= y && y >= line.end.Y)) {
+                        let point = lineToLine(line.start.X, line.start.Y, line.end.X, line.end.Y, 0, y, 100, y);
+                        let key = point.X + ":" + point.Y;
+                        if (!distinctPoint[key]) {
+                            cornerPoints.push(point);
+                            distinctPoint[key] = point;
+                        }
+                    }
+                }
+            }
+            //参照点的分割线
+            let x = -offsetX;
+            let y = -offsetY;
+            for (let j = 0; j < solLines.length; j++) {
+                const line = solLines[j];
+                if ((line.start.X <= x && x <= line.end.X) || (line.start.X >= x && x >= line.end.X)) {
+                    let point = lineToLine(line.start.X, line.start.Y, line.end.X, line.end.Y, x, 0, x, 100);
+                    let key = point.X + ":" + point.Y;
+                    if (!distinctPoint[key]) {
+                        parallelPoints.push(point);
+                        distinctPoint[key] = point;
+                    }
+                }
+                if ((line.start.Y <= y && y <= line.end.Y) || (line.start.Y >= y && y >= line.end.Y)) {
+                    let point = lineToLine(line.start.X, line.start.Y, line.end.X, line.end.Y, 0, y, 100, y);
+                    let key = point.X + ":" + point.Y;
+                    if (!distinctPoint[key]) {
+                        parallelPoints.push(point);
+                        distinctPoint[key] = point;
+                    }
+                }
+            }
+        }
+
+        function pointInPaths(solutions, point) {
+            for (let i = 0; i < solutions.length; i++) {
+                const solution = solutions[i];
+                var isInside = ClipperLib.Clipper.PointInPolygon(point, solution);
+                if (isInside < 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function lineToLine(l1sx, l1sy, l1ex, l1ey, l2sx, l2sy, l2ex, l2ey) {
+            let A1 = l1sy - l1ey;
+            let B1 = l1ex - l1sx;
+            let C1 = l1sx * l1ey - l1ex * l1sy;
+
+            let A2 = l2sy - l2ey;
+            let B2 = l2ex - l2sx;
+            let C2 = l2sx * l2ey - l2ex * l2sy;
+
+            let denominator = A1 * B2 - A2 * B1;
+            return { X: (B1 * C2 - B2 * C1) / denominator, Y: (C1 * A2 - C2 * A1) / denominator }
+        }
+    </script>
+</body>
+
+</html>
